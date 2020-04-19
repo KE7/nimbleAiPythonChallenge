@@ -3,8 +3,8 @@ FROM 3.7-buster
 
 RUN mkdir -p /server
 
-COPY server.py /server/server.py
-COPY requirements.txt ./
+COPY ../server.py /server/server.py
+COPY ../requirements.txt .
 
 RUN pip install -r requirements.txt
 

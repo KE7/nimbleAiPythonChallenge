@@ -17,14 +17,17 @@ COORDINATE_SIGNAL = TcpSocketSignaling("127.0.0.1", 9002)
 
 class Client:
     async def receive_frame(self, peer_conn, queue_a):
+        """
+        Receives a frame from the server and places it onto it's queue
+        :param peer_conn:
+        :param queue_a:
+        """
         offer = IMAGE_SIGNAL
         await offer.connect()
 
         answer = await peer_conn.createAnswer()
         await peer_conn.setLocalDescription(answer)
 
-        print('here')
-        print(answer)
         queue_a.put(answer)
 
 
@@ -93,22 +96,23 @@ async def consume_signaling(peer_conn, signaling):
 if __name__ == '__main__':
     queue_one = Manager().Queue()
     queue_two = Manager().Queue()
+
     c = Client()
+
     pconn = RTCPeerConnection()
     c.receive_frame(pconn, queue_one)
 
     process_one = Process(target=process_a, args=(queue_one, queue_two))
     process_one.start()
 
-    # print("Press escape to kill the client")
-
     coro = send_channel(pconn, COORDINATE_SIGNAL, queue_two)
     loop = asyncio.get_event_loop()
+
     try:
         loop.run_until_complete(coro)
     except KeyboardInterrupt:
         pass
     finally:
-        loop.run_until_complete(pc.close())
+        loop.run_until_complete(pconn.close())
         loop.run_until_complete(COORDINATE_SIGNAL.close())
         process_one.join()

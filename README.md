@@ -14,20 +14,16 @@ audio codecs over a port so I could have done both on one TCP connection with
 2 channels but I didn't. It's not hard to change between the two.
 
 For testing, I did as much as I could while going around `aiortc`. I struggled
-to use this library. Documentation was very lacking, examples were limited,
-and there was barely any use of it. In a real world scenario, an enterprise 
-or startup would not use such a library. Using a library that has not passed 
-a security inspection or that is not widely used presents a security 
-vulnerability. A hacker could have committed malicious code that no one 
-would other be monitoring. 
+to use this library. Documentation was very lacking, examples in the repo 
+were limited, and there was barely any use of it in the greater community. 
 
-For the client's Circle Dectection, I used Hough Circles. I determined some 
-initial values from the paper by Yuen et al. I also used a min and max Radius
-based on the prior knowledge that the server will construct a circle within 
-those bounds.
+For the client's Circle Detection, I used Hough Circles. I determined some 
+initial values from the paper by Yuen et al. and proceeding to refine them 
+through manual testing. I also used a min and max Radius based on the 
+prior knowledge that the server will construct a circle within those bounds.
 
 If you would like to see the ball bound around, run `python test_integration.py `.
-The `view_ball()` method is called by main.
+The `view_ball()` method is called by main method.
 
 You can run tests by `pytest "filename"`. There are unit tests for the server
 and there is a full integration test modulo `aiortc` related functions.

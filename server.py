@@ -4,10 +4,11 @@
 
 import numpy as np
 import cv2
+import asyncio
 
 from multiprocessing import Process, Manager
 
-from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
+from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription, RTCIceCandidate
 from aiortc.contrib.signaling import TcpSocketSignaling
 
 from enum import Enum
@@ -18,7 +19,13 @@ from scipy.spatial import distance
 IMAGE_SIGNAL = TcpSocketSignaling("127.0.0.1", 9001)
 COORDINATE_SIGNAL = TcpSocketSignaling("127.0.0.1", 9002)
 
+
 class BouncingBall:
+    """
+    A bouncing ball object is an object which describe a ball bouncing
+    around in a box. There are no forces so the ball always moves
+    at the same velocity that was given to it at instantiation.
+    """
 
     class BallSpeed(Enum):
         """
@@ -29,6 +36,13 @@ class BouncingBall:
         FAST = 4
 
     def __init__(self, window_length, window_width, ball_radius, speed):
+        """
+        Instantiate a BouncingBall
+        :param window_length: Y dimension (up and down) of the window
+        :param window_width: X dimension (left and right) of the window
+        :param ball_radius: Radius of the ball
+        :param speed: BallSpeed
+        """
         super().__init__()
         if window_length < 500 or window_length > 2000:
             raise ValueError("Window length is out of bounds")
@@ -84,6 +98,10 @@ class BouncingBall:
         return img_with_circle
 
     def get_current_position(self):
+        """
+        Returns the current (x, y) coordinates of where the ball is within the boundary box
+        :return:
+        """
         return self.x, self.y
 
 
@@ -98,11 +116,10 @@ class ImageFrameTrack(MediaStreamTrack):
 
 class Server:
     @staticmethod
-    async def offer_frame(image_frame):
+    async def offer_frame(peer_conn, image_frame):
         offer = IMAGE_SIGNAL
         await offer.connect()
 
-        peer_conn = RTCPeerConnection()
         peer_conn.addTrack(ImageFrameTrack(image_frame))
         await peer_conn.setLocalDescription(await peer_conn.createOffer())
 
@@ -138,6 +155,14 @@ async def consume_signaling(peer_conn, signaling):
 
 
 def calculate_error(actual_ball, queue_a, debug_queue=None):
+    """
+    Given the actual bouncing ball on the server and a communication queue with the client,
+    this method determine the error between the clients guesses placed on the queue
+    and the current position of the ball.
+    :param actual_ball: BouncingBall instance
+    :param queue_a: Thread safe queue where the client.py enters it's guesses and this method picks them up
+    :param debug_queue: A queue used for debugging where the commuted error is outputted.
+    """
     while True:
         if not queue_a.empty():
             estimation = queue_a.get()
@@ -145,11 +170,18 @@ def calculate_error(actual_ball, queue_a, debug_queue=None):
             # and if the ball moves while we are reading, oh well. It only moves so much
             real_position = actual_ball.get_current_position()
             dist_error = distance.euclidean(real_position, estimation)
-            display_error(dist_error, debug_queue)
+            display_error(dist_error)
+            if debug_queue is not None:
+                debug_queue.put(dist_error)
 
 
-def display_error(dist_error, debug_queue=None):
-    error_img = np.zeros((512, 512, 3), np.uint8)
+def display_error(dist_error):
+    """
+    Displays the error as a opencv Window. The error is written into the bottom left corner of the window.
+    :param dist_error: Error to be written
+    :return:
+    """
+    error_img = np.zeros((500, 500, 3), np.uint8)
     bottom_left_corner = (10, 500)
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 1
@@ -165,22 +197,38 @@ def display_error(dist_error, debug_queue=None):
     cv2.destroyAllWindows()  # note opencv has a bug on Unix where windows may not close
     cv2.waitKey(1)
 
-    if debug_queue is not None:
-        debug_queue.put(dist_error)
+
+def run_estimator(pc, signaling, correspondence):
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(correspondence)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        loop.run_until_complete(pc.close())
+        loop.run_until_complete(signaling.close())
 
 
 if __name__ == "__main__":
     print('Starting Karim\'s server')
+
+    peer_conn = RTCPeerConnection()
     # for each frame, send it
     server = Server()
     ball = BouncingBall(500, 500, 20, BouncingBall.BallSpeed.MEDIUM)
-
     queue_one = Manager().Queue()
 
+    coro = get_coordinates_estimation(peer_conn, COORDINATE_SIGNAL, queue_one)
+
     p1 = Process(target=calculate_error, args=(ball, queue_one,))
+    p2 = Process(target=run_estimator, args=(peer_conn, COORDINATE_SIGNAL, coro,))
 
     while True:
         new_ball_position = ball.increment_ball()
-        server.offer_frame(new_ball_position)
+        server.offer_frame(peer_conn, new_ball_position)
+        key = cv2.waitKey(1)
+        if key == '27':  # esc key
+            break
 
     p1.join()
+    p2.join()
